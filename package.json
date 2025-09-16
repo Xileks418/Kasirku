@@ -1,0 +1,1655 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '/components/ui/card';
+import { Button } from '/components/ui/button';
+import { Input } from '/components/ui/input';
+import { Label } from '/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '/components/ui/select';
+import { Textarea } from '/components/ui/textarea';
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  purchasePrice: number;
+  stock: number;
+  category: string;
+  barcode: string;
+  description: string;
+}
+
+interface Transaction {
+  id: string;
+  date: string;
+  items: TransactionItem[];
+  total: number;
+  paymentMethod: string;
+  customerName?: string;
+  discount: number;
+  tax: number;
+  cashier: string;
+}
+
+interface TransactionItem {
+  product: Product;
+  quantity: number;
+  subtotal: number;
+}
+
+interface User {
+  id: string;
+  username: string;
+  role: 'admin' | 'manager' | 'cashier';
+  name: string;
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  points: number;
+  totalSpent: number;
+  joinDate: string;
+}
+
+interface Supplier {
+  id: string;
+  name: string;
+  contact: string;
+  address: string;
+  products: string[];
+}
+
+const DEMO_USERS: User[] = [
+  { id: '1', username: 'admin', role: 'admin', name: 'Administrator' },
+  { id: '2', username: 'manager', role: 'manager', name: 'Manager Store' },
+  { id: '3', username: 'kasir1', role: 'cashier', name: 'Kasir 1' }
+];
+
+const DEMO_PRODUCTS: Product[] = [
+  {
+    id: '1',
+    name: 'Kopi Arabica Premium',
+    price: 45000,
+    purchasePrice: 35000,
+    stock: 50,
+    category: 'Minuman',
+    barcode: '1234567890123',
+    description: 'Kopi arabica premium berkualitas tinggi'
+  },
+  {
+    id: '2',
+    name: 'Roti Bakar Special',
+    price: 25000,
+    purchasePrice: 18000,
+    stock: 30,
+    category: 'Makanan',
+    barcode: '2345678901234',
+    description: 'Roti bakar dengan topping spesial'
+  },
+  {
+    id: '3',
+    name: 'Jus Jeruk Fresh',
+    price: 20000,
+    purchasePrice: 15000,
+    stock: 25,
+    category: 'Minuman',
+    barcode: '3456789012345',
+    description: 'Jus jeruk segar tanpa pengawet'
+  }
+];
+
+const DEMO_CUSTOMERS: Customer[] = [
+  {
+    id: '1',
+    name: 'John Doe',
+    phone: '081234567890',
+    email: 'john@example.com',
+    points: 150,
+    totalSpent: 500000,
+    joinDate: new Date().toISOString()
+  },
+  {
+    id: '2',
+    name: 'Jane Smith',
+    phone: '081234567891',
+    email: 'jane@example.com',
+    points: 250,
+    totalSpent: 750000,
+    joinDate: new Date().toISOString()
+  }
+];
+
+const INITIAL_STORE_SETTINGS = {
+  name: 'Toko Professional',
+  address: 'Jl. Contoh No. 123, Jakarta',
+  phone: '+62 21 1234 5678',
+  email: 'info@tokoprofessional.com',
+  taxRate: 10,
+  taxName: 'PPN',
+  currency: 'IDR',
+  receiptFooter: 'Terima Kasih Atas Kunjungan Anda'
+};
+
+export default function ProfessionalCashierSystem() {
+  // State Management
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentView, setCurrentView] = useState<'login' | 'dashboard' | 'pos' | 'products' | 'reports' | 'settings' | 'hutang'>('login');
+  const [products, setProducts] = useState<Product[]>(DEMO_PRODUCTS);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [cart, setCart] = useState<TransactionItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [customerName, setCustomerName] = useState('');
+  const [discount, setDiscount] = useState(0);
+  const [cashReceived, setCashReceived] = useState(0);
+  const [customers, setCustomers] = useState<Customer[]>(DEMO_CUSTOMERS);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [showCustomerForm, setShowCustomerForm] = useState(false);
+  const [storeSettings, setStoreSettings] = useState(INITIAL_STORE_SETTINGS);
+  const [lowStockThreshold, setLowStockThreshold] = useState(10);
+  const [showAddUserForm, setShowAddUserForm] = useState(false);
+  const [newUser, setNewUser] = useState({
+    username: '',
+    password: '',
+    name: '',
+    role: 'cashier' as 'admin' | 'manager' | 'cashier'
+  });
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [purchaseQuantity, setPurchaseQuantity] = useState(1);
+  const [users, setUsers] = useState<User[]>(DEMO_USERS);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Add custom CSS for gradient backgrounds and enhanced colors
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      :root {
+        --gradient-blue-pink: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
+        --gradient-blue: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+        --gradient-pink: linear-gradient(135deg, #be185d 0%, #ec4899 100%);
+        --gradient-purple: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+        --accent-blue: #3b82f6;
+        --accent-pink: #ec4899;
+        --accent-purple: #8b5cf6;
+      }
+      
+      .gradient-bg-main {
+        background: var(--gradient-blue-pink);
+      }
+      
+      .gradient-bg-blue {
+        background: var(--gradient-blue);
+      }
+      
+      .gradient-bg-pink {
+        background: var(--gradient-pink);
+      }
+      
+      .gradient-bg-purple {
+        background: var(--gradient-purple);
+      }
+      
+      .text-gradient {
+        background: var(--gradient-blue-pink);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      
+      .card-gradient {
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        border: 1px solid #e2e8f0;
+      }
+      
+      .stat-card-blue {
+        background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+        border: 1px solid #93c5fd;
+      }
+      
+      .stat-card-pink {
+        background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%);
+        border: 1px solid #f9a8d4;
+      }
+      
+      .stat-card-purple {
+        background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+        border: 1px solid #c4b5fd;
+      }
+      
+      .stat-card-green {
+        background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+        border: 1px solid #86efac;
+      }
+      
+      .stat-card-orange {
+        background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+        border: 1px solid #fb923c;
+      }
+
+      .loading-spinner {
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      .fade-in {
+        animation: fadeIn 0.3s ease-in-out;
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .hover-scale {
+        transition: transform 0.2s ease-in-out;
+      }
+
+      .hover-scale:hover {
+        transform: scale(1.02);
+      }
+
+      .pulse-success {
+        animation: pulseSuccess 2s ease-in-out;
+      }
+
+      @keyframes pulseSuccess {
+        0%, 100% { background-color: initial; }
+        50% { background-color: rgba(34, 197, 94, 0.1); }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      if (document.head.contains(style)) {
+        document.head.removeChild(style);
+      }
+    };
+  }, []);
+
+  // Load data from localStorage on component mount
+  useEffect(() => {
+    try {
+      const storedProducts = localStorage.getItem('kasir-products');
+      const storedTransactions = localStorage.getItem('kasir-transactions');
+      const storedUsers = localStorage.getItem('kasir-users');
+      const storedSettings = localStorage.getItem('kasir-settings');
+      const storedCustomers = localStorage.getItem('kasir-customers');
+
+      if (storedProducts) setProducts(JSON.parse(storedProducts));
+      if (storedTransactions) setTransactions(JSON.parse(storedTransactions));
+      if (storedUsers) setUsers(JSON.parse(storedUsers));
+      if (storedSettings) setStoreSettings(JSON.parse(storedSettings));
+      if (storedCustomers) {
+        setCustomers(JSON.parse(storedCustomers));
+      } else {
+        localStorage.setItem('kasir-customers', JSON.stringify(DEMO_CUSTOMERS));
+      }
+    } catch (error) {
+      console.error('Error loading data from localStorage:', error);
+    }
+  }, []);
+
+  // Save data to localStorage whenever state changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasir-products', JSON.stringify(products));
+    } catch (error) {
+      console.error('Error saving products:', error);
+    }
+  }, [products]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasir-transactions', JSON.stringify(transactions));
+    } catch (error) {
+      console.error('Error saving transactions:', error);
+    }
+  }, [transactions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasir-customers', JSON.stringify(customers));
+    } catch (error) {
+      console.error('Error saving customers:', error);
+    }
+  }, [customers]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasir-users', JSON.stringify(users));
+    } catch (error) {
+      console.error('Error saving users:', error);
+    }
+  }, [users]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasir-settings', JSON.stringify(storeSettings));
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    }
+  }, [storeSettings]);
+
+  // Memoized calculations
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.subtotal, 0), [cart]);
+  const discountAmount = useMemo(() => (subtotal * discount) / 100, [subtotal, discount]);
+  const taxAmount = useMemo(() => (subtotal - discountAmount) * (storeSettings.taxRate / 100), [subtotal, discountAmount, storeSettings.taxRate]);
+  const total = useMemo(() => subtotal - discountAmount + taxAmount, [subtotal, discountAmount, taxAmount]);
+  const change = useMemo(() => cashReceived - total, [cashReceived, total]);
+
+  // Get categories
+  const categories = useMemo(() => ['all', ...Array.from(new Set(products.map(p => p.category)))], [products]);
+
+  // Notification system for low stock
+  useEffect(() => {
+    const lowStockItems = products.filter(p => p.stock <= lowStockThreshold);
+    if (lowStockItems.length > 0 && currentView === 'dashboard') {
+      console.log(`Peringatan: ${lowStockItems.length} produk dengan stok menipis!`);
+    }
+  }, [products, currentView, lowStockThreshold]);
+
+  // Filter products with memoization
+  const filteredProducts = useMemo(() => {
+    return products.filter(product => {
+      const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           product.barcode.includes(searchQuery);
+      const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [products, searchQuery, selectedCategory]);
+
+  // Login handler with loading state
+  const handleLogin = useCallback(async (username: string, password: string) => {
+    setIsLoading(true);
+    try {
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const user = users.find(u => u.username === username);
+      if (user && password === 'demo123') {
+        setCurrentUser(user);
+        setCurrentView('dashboard');
+      } else {
+        alert('Username atau password salah!');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      alert('Terjadi kesalahan saat login!');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [users]);
+
+  // Enhanced logout with confirmation
+  const handleLogout = useCallback(() => {
+    if (cart.length > 0) {
+      if (!window.confirm('Ada item di keranjang yang belum diproses. Yakin logout?')) {
+        return;
+      }
+    }
+    setCurrentUser(null);
+    setCurrentView('login');
+    setCart([]);
+    setSelectedCustomer(null);
+    setCustomerName('');
+    setDiscount(0);
+    setCashReceived(0);
+  }, [cart.length]);
+
+  // Open purchase modal
+  const openPurchaseModal = useCallback((product: Product) => {
+    setSelectedProduct(product);
+    setPurchaseQuantity(1);
+    setShowPurchaseModal(true);
+  }, []);
+
+  // Enhanced direct purchase function
+  const processDirect = useCallback(async () => {
+    if (!selectedProduct || !currentUser) return;
+    
+    setIsLoading(true);
+    
+    try {
+      const quantity = purchaseQuantity;
+      
+      if (!quantity || quantity <= 0) {
+        alert('Jumlah tidak valid!');
+        return;
+      }
+
+      if (selectedProduct.stock < quantity) {
+        alert('Stok tidak mencukupi!');
+        return;
+      }
+
+      const subtotalDirect = quantity * selectedProduct.price;
+      const discountAmountDirect = (subtotalDirect * discount) / 100;
+      const taxAmountDirect = (subtotalDirect - discountAmountDirect) * (storeSettings.taxRate / 100);
+      const totalDirect = subtotalDirect - discountAmountDirect + taxAmountDirect;
+      const changeDirect = cashReceived - totalDirect;
+
+      if (paymentMethod === 'cash' && cashReceived < totalDirect) {
+        alert('Uang yang diterima tidak mencukupi!');
+        return;
+      }
+
+      const transaction: Transaction = {
+        id: Date.now().toString(),
+        date: new Date().toISOString(),
+        items: [{
+          product: selectedProduct,
+          quantity,
+          subtotal: subtotalDirect
+        }],
+        total: totalDirect,
+        paymentMethod,
+        customerName: selectedCustomer?.name || customerName || undefined,
+        discount: discountAmountDirect,
+        tax: taxAmountDirect,
+        cashier: currentUser.name
+      };
+
+      // Update stock
+      const updatedProducts = products.map(p => 
+        p.id === selectedProduct.id 
+          ? { ...p, stock: p.stock - quantity }
+          : p
+      );
+
+      // Update customer points if customer selected
+      if (selectedCustomer) {
+        const pointsEarned = Math.floor(totalDirect / 10000);
+        const updatedCustomers = customers.map(customer =>
+          customer.id === selectedCustomer.id
+            ? { 
+                ...customer, 
+                points: customer.points + pointsEarned,
+                totalSpent: customer.totalSpent + totalDirect
+              }
+            : customer
+        );
+        setCustomers(updatedCustomers);
+      }
+
+      setProducts(updatedProducts);
+      setTransactions([transaction, ...transactions]);
+      
+      // Reset form
+      setSelectedCustomer(null);
+      setCustomerName('');
+      setDiscount(0);
+      setCashReceived(0);
+      setShowPurchaseModal(false);
+      setSelectedProduct(null);
+      setPurchaseQuantity(1);
+
+      // Success feedback
+      const successMessage = `✅ Transaksi berhasil!\n\nTotal: Rp ${totalDirect.toLocaleString('id-ID')}\n${paymentMethod === 'cash' ? `Kembalian: Rp ${changeDirect.toLocaleString('id-ID')}` : ''}`;
+      alert(successMessage);
+
+    } catch (error) {
+      console.error('Transaction error:', error);
+      alert('Terjadi kesalahan saat memproses transaksi!');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedProduct, purchaseQuantity, discount, paymentMethod, cashReceived, selectedCustomer, customerName, currentUser, storeSettings.taxRate, products, customers, transactions]);
+
+  // Product management functions
+  const addProduct = useCallback((newProduct: Omit<Product, 'id'>) => {
+    try {
+      const product: Product = {
+        ...newProduct,
+        id: Date.now().toString()
+      };
+      setProducts(prev => [...prev, product]);
+    } catch (error) {
+      console.error('Error adding product:', error);
+      alert('Gagal menambah produk!');
+    }
+  }, []);
+
+  const updateProduct = useCallback((id: string, updatedProduct: Partial<Product>) => {
+    try {
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updatedProduct } : p));
+    } catch (error) {
+      console.error('Error updating product:', error);
+      alert('Gagal mengupdate produk!');
+    }
+  }, []);
+
+  const deleteProduct = useCallback((id: string) => {
+    try {
+      setProducts(prev => prev.filter(p => p.id !== id));
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      alert('Gagal menghapus produk!');
+    }
+  }, []);
+
+  // Enhanced Login Form Component
+  const LoginForm = React.memo(() => {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      handleLogin(username, password);
+    };
+
+    return (
+      <div className="min-h-screen gradient-bg-main flex items-center justify-center p-4">
+        <Card className="w-full max-w-md card-gradient shadow-2xl border-blue-200 fade-in">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl font-bold text-gradient">💼 Sistem Kasir Professional</CardTitle>
+            <p className="text-muted-foreground">Silakan login untuk melanjutkan</p>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Masukkan username"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Masukkan password"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <div className="loading-spinner w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                    Logging in...
+                  </>
+                ) : (
+                  'Login'
+                )}
+              </Button>
+            </form>
+            <div className="mt-4 text-sm text-muted-foreground space-y-1">
+              <p><strong>Demo Accounts:</strong></p>
+              <p>Admin: admin / demo123</p>
+              <p>Manager: manager / demo123</p>
+              <p>Kasir: kasir1 / demo123</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  });
+
+  // Enhanced Navigation Component
+  const Navigation = React.memo(() => (
+    <div className="gradient-bg-main text-white p-4 shadow-lg">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <h1 className="text-xl font-bold text-white drop-shadow-md">💼 Kasir Professional</h1>
+          <div className="hidden md:flex space-x-2">
+            <Button
+              variant={currentView === 'dashboard' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setCurrentView('dashboard')}
+            >
+              📊 Dashboard
+            </Button>
+            <Button
+              variant={currentView === 'pos' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setCurrentView('pos')}
+            >
+              🛒 POS
+            </Button>
+            {currentUser?.role !== 'cashier' && (
+              <>
+                <Button
+                  variant={currentView === 'products' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setCurrentView('products')}
+                >
+                  📦 Produk
+                </Button>
+                <Button
+                  variant={currentView === 'reports' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setCurrentView('reports')}
+                >
+                  📈 Laporan
+                </Button>
+                <Button
+                  variant={currentView === 'hutang' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setCurrentView('hutang')}
+                >
+                  💳 Hutang
+                </Button>
+              </>
+            )}
+            {currentUser?.role === 'admin' && (
+              <Button
+                variant={currentView === 'settings' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentView('settings')}
+              >
+                ⚙️ Pengaturan
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center space-x-4">
+          <span className="text-sm hidden sm:inline">Halo, {currentUser?.name}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+          >
+            🚪 Logout
+          </Button>
+        </div>
+      </div>
+    </div>
+  ));
+
+  // Enhanced Dashboard Component
+  const Dashboard = React.memo(() => {
+    const todayTransactions = useMemo(() => transactions.filter(t => 
+      new Date(t.date).toDateString() === new Date().toDateString()
+    ), [transactions]);
+    
+    const todayRevenue = useMemo(() => todayTransactions.reduce((sum, t) => sum + t.total, 0), [todayTransactions]);
+    
+    // Calculate profit from today's transactions
+    const todayProfit = useMemo(() => todayTransactions.reduce((sum, transaction) => {
+      const transactionProfit = transaction.items.reduce((itemSum, item) => {
+        const profit = (item.product.price - item.product.purchasePrice) * item.quantity;
+        return itemSum + profit;
+      }, 0);
+      return sum + transactionProfit;
+    }, 0), [todayTransactions]);
+    
+    const lowStockProducts = useMemo(() => products.filter(p => p.stock <= lowStockThreshold), [products, lowStockThreshold]);
+
+    return (
+      <div className="p-6 space-y-6 fade-in">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card className="stat-card-blue shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-blue-700">💰 Penjualan Hari Ini</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-800">
+                Rp {todayRevenue.toLocaleString('id-ID')}
+              </div>
+              <p className="text-xs text-blue-600 mt-1">
+                {todayTransactions.length} transaksi
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card className="stat-card-purple shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-purple-700">📊 Transaksi Hari Ini</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-800">
+                {todayTransactions.length}
+              </div>
+              <p className="text-xs text-purple-600 mt-1">
+                Rata-rata: Rp {todayTransactions.length > 0 ? (todayRevenue / todayTransactions.length).toLocaleString('id-ID') : '0'}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="stat-card-pink shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-pink-700">📦 Total Produk</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-pink-800">
+                {products.length}
+              </div>
+              <p className="text-xs text-pink-600 mt-1">
+                {categories.length - 1} kategori
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="stat-card-green shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-green-700">💎 Keuntungan Hari Ini</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-800">
+                Rp {todayProfit.toLocaleString('id-ID')}
+              </div>
+              <p className="text-xs text-green-600 mt-1">
+                Margin: {todayRevenue > 0 ? ((todayProfit / todayRevenue) * 100).toFixed(1) : '0'}%
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="stat-card-orange shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-orange-700">⚠️ Stok Menipis</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-800">
+                {lowStockProducts.length}
+              </div>
+              <p className="text-xs text-orange-600 mt-1">
+                Batas: ≤{lowStockThreshold} unit
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="card-gradient shadow-lg border-blue-200">
+            <CardHeader className="gradient-bg-blue text-white rounded-t-lg">
+              <CardTitle className="text-white">📋 Transaksi Terbaru</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {transactions.slice(0, 10).map(transaction => (
+                  <div key={transaction.id} className="flex justify-between items-center border-b pb-2 last:border-b-0">
+                    <div>
+                      <p className="font-medium">#{transaction.id}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {new Date(transaction.date).toLocaleString('id-ID')}
+                      </p>
+                      {transaction.customerName && (
+                        <p className="text-xs text-blue-600">{transaction.customerName}</p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-primary">
+                        Rp {transaction.total.toLocaleString('id-ID')}
+                      </p>
+                      <p className="text-sm text-muted-foreground capitalize">
+                        {transaction.paymentMethod}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {transactions.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Belum ada transaksi
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="card-gradient shadow-lg border-pink-200">
+            <CardHeader className="gradient-bg-pink text-white rounded-t-lg">
+              <CardTitle className="text-white">⚠️ Stok Menipis</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {lowStockProducts.slice(0, 10).map(product => (
+                  <div key={product.id} className="flex justify-between items-center border-b pb-2 last:border-b-0">
+                    <div>
+                      <p className="font-medium">{product.name}</p>
+                      <p className="text-sm text-muted-foreground">{product.category}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-destructive">
+                        {product.stock} unit
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Rp {product.price.toLocaleString('id-ID')}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {lowStockProducts.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    ✅ Semua stok aman
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  });
+
+  // Enhanced POS Component
+  const POSSystem = React.memo(() => (
+    <div className="p-4 fade-in">
+      <div className="grid grid-cols-1 gap-4">
+        {/* Product Selection */}
+        <div className="lg:col-span-3 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              placeholder="🔍 Cari produk atau scan barcode..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1"
+            />
+            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map(category => (
+                  <SelectItem key={category} value={category}>
+                    {category === 'all' ? '📂 Semua Kategori' : category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Card className="card-gradient shadow-xl border-purple-200">
+            <CardHeader className="gradient-bg-purple text-white rounded-t-lg">
+              <CardTitle className="text-white">🛍️ Daftar Produk ({filteredProducts.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-screen overflow-y-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b bg-muted/50 sticky top-0">
+                      <th className="text-left p-3 font-medium">Produk</th>
+                      <th className="text-left p-3 font-medium">Harga</th>
+                      <th className="text-left p-3 font-medium">Stok</th>
+                      <th className="text-left p-3 font-medium">Kategori</th>
+                      <th className="text-center p-3 font-medium">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredProducts.map(product => (
+                      <tr 
+                        key={product.id} 
+                        className="border-b hover:bg-muted/30 transition-colors"
+                      >
+                        <td className="p-3">
+                          <div>
+                            <p className="font-medium">{product.name}</p>
+                            {product.barcode && (
+                              <p className="text-xs text-muted-foreground">
+                                📊 {product.barcode}
+                              </p>
+                            )}
+                            {product.description && (
+                              <p className="text-xs text-muted-foreground truncate max-w-48">
+                                {product.description}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <p className="font-bold text-primary">
+                            Rp {product.price.toLocaleString('id-ID')}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Modal: Rp {product.purchasePrice.toLocaleString('id-ID')}
+                          </p>
+                          <p className="text-xs text-green-600 font-medium">
+                            Untung: Rp {(product.price - product.purchasePrice).toLocaleString('id-ID')}
+                          </p>
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            product.stock <= lowStockThreshold 
+                              ? 'bg-destructive/10 text-destructive' 
+                              : product.stock <= lowStockThreshold * 2
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-primary/10 text-primary'
+                          }`}>
+                            {product.stock} unit
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <span className="px-2 py-1 bg-secondary text-secondary-foreground rounded text-xs">
+                            {product.category}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          <Button
+                            size="sm"
+                            onClick={() => openPurchaseModal(product)}
+                            disabled={product.stock === 0 || isLoading}
+                            className="h-8 px-3 bg-gradient-to-r from-blue-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 text-white border-0 shadow-md"
+                          >
+                            {product.stock === 0 ? '❌ Habis' : '🛒 Beli'}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredProducts.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          🔍 Tidak ada produk yang ditemukan
+                          {searchQuery && (
+                            <p className="mt-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSearchQuery('')}
+                              >
+                                ❌ Reset Pencarian
+                              </Button>
+                            </p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Enhanced Purchase Modal */}
+        {showPurchaseModal && selectedProduct && (
+          <div className="fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4">
+            <Card className="bg-white border border-purple-200 rounded-xl shadow-2xl p-6 w-full max-w-md card-gradient fade-in">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gradient">🛍️ Transaksi: {selectedProduct.name}</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowPurchaseModal(false);
+                    setSelectedProduct(null);
+                    setPurchaseQuantity(1);
+                    setSelectedCustomer(null);
+                    setCustomerName('');
+                    setDiscount(0);
+                    setCashReceived(0);
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </Button>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="bg-muted/30 p-3 rounded-lg">
+                  <p className="text-sm text-muted-foreground">Informasi Produk:</p>
+                  <p className="font-medium">{selectedProduct.name}</p>
+                  <p className="text-sm">Harga: Rp {selectedProduct.price.toLocaleString('id-ID')}</p>
+                  <p className="text-sm">Stok tersedia: {selectedProduct.stock} unit</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="purchase-quantity">Jumlah *</Label>
+                  <Input
+                    id="purchase-quantity"
+                    type="number"
+                    value={purchaseQuantity}
+                    onChange={(e) => setPurchaseQuantity(Math.max(1, Math.min(selectedProduct.stock, Number(e.target.value))))}
+                    min="1"
+                    max={selectedProduct.stock}
+                    placeholder="Jumlah"
+                    disabled={isLoading}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Pelanggan (Opsional):</Label>
+                  <div className="flex space-x-2">
+                    <Select 
+                      value={selectedCustomer?.id || ''} 
+                      onValueChange={(value) => {
+                        const customer = customers.find(c => c.id === value);
+                        setSelectedCustomer(customer || null);
+                        if (customer) setCustomerName(customer.name);
+                      }}
+                      disabled={isLoading}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Pilih member" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customers.map(customer => (
+                          <SelectItem key={customer.id} value={customer.id}>
+                            {customer.name} - {customer.points} poin
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowCustomerForm(true)}
+                      disabled={isLoading}
+                    >
+                      +
+                    </Button>
+                  </div>
+                  {!selectedCustomer && (
+                    <Input
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="Atau ketik nama pelanggan"
+                      disabled={isLoading}
+                    />
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Metode Pembayaran:</Label>
+                  <Select value={paymentMethod} onValueChange={setPaymentMethod} disabled={isLoading}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">💵 Tunai</SelectItem>
+                      <SelectItem value="card">💳 Kartu Kredit/Debit</SelectItem>
+                      <SelectItem value="ewallet">📱 E-Wallet</SelectItem>
+                      <SelectItem value="transfer">🏦 Transfer Bank</SelectItem>
+                      <SelectItem value="hutang">📝 Hutang/Piutang</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Label htmlFor="modal-discount" className="text-sm">Diskon (%):</Label>
+                    <Input
+                      id="modal-discount"
+                      type="number"
+                      value={discount}
+                      onChange={(e) => setDiscount(Math.max(0, Math.min(100, Number(e.target.value))))}
+                      className="w-20 h-8"
+                      min="0"
+                      max="100"
+                      disabled={isLoading}
+                    />
+                  </div>
+                </div>
+
+                {paymentMethod === 'cash' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="modal-cash">Uang Diterima:</Label>
+                    <Input
+                      id="modal-cash"
+                      type="number"
+                      value={cashReceived}
+                      onChange={(e) => setCashReceived(Number(e.target.value))}
+                      placeholder="Jumlah uang diterima"
+                      disabled={isLoading}
+                    />
+                  </div>
+                )}
+
+                {paymentMethod === 'hutang' && (
+                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                      ⚠️ Transaksi akan dicatat sebagai piutang. Pastikan data pelanggan sudah benar.
+                    </p>
+                  </div>
+                )}
+
+                <div className="border-t pt-3 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Subtotal:</span>
+                    <span>Rp {(purchaseQuantity * selectedProduct.price).toLocaleString('id-ID')}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Diskon ({discount}%):</span>
+                    <span className="text-green-600">
+                      -Rp {((purchaseQuantity * selectedProduct.price * discount) / 100).toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>{storeSettings.taxName} ({storeSettings.taxRate}%):</span>
+                    <span>Rp {(((purchaseQuantity * selectedProduct.price) - ((purchaseQuantity * selectedProduct.price * discount) / 100)) * (storeSettings.taxRate / 100)).toLocaleString('id-ID')}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-primary border-t pt-2">
+                    <span>Total:</span>
+                    <span>Rp {(() => {
+                      const subtotal = purchaseQuantity * selectedProduct.price;
+                      const discountAmount = (subtotal * discount) / 100;
+                      const taxAmount = (subtotal - discountAmount) * (storeSettings.taxRate / 100);
+                      return (subtotal - discountAmount + taxAmount).toLocaleString('id-ID');
+                    })()}</span>
+                  </div>
+                  {paymentMethod === 'cash' && cashReceived > 0 && (
+                    <div className="flex justify-between text-sm font-medium text-green-600">
+                      <span>Kembalian:</span>
+                      <span>Rp {(() => {
+                        const subtotal = purchaseQuantity * selectedProduct.price;
+                        const discountAmount = (subtotal * discount) / 100;
+                        const taxAmount = (subtotal - discountAmount) * (storeSettings.taxRate / 100);
+                        const total = subtotal - discountAmount + taxAmount;
+                        return Math.max(0, cashReceived - total).toLocaleString('id-ID');
+                      })()}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex space-x-2">
+                  <Button 
+                    onClick={processDirect} 
+                    className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <>
+                        <div className="loading-spinner w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                        Memproses...
+                      </>
+                    ) : (
+                      '✅ Proses Transaksi'
+                    )}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setShowPurchaseModal(false);
+                      setSelectedProduct(null);
+                      setPurchaseQuantity(1);
+                      setSelectedCustomer(null);
+                      setCustomerName('');
+                      setDiscount(0);
+                      setCashReceived(0);
+                    }}
+                    disabled={isLoading}
+                  >
+                    ❌ Batal
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  ));
+
+  // Products Management Component
+  const ProductsManagement = React.memo(() => {
+    const [isAddingProduct, setIsAddingProduct] = useState(false);
+    const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+    const [newProduct, setNewProduct] = useState({
+      name: '',
+      price: 0,
+      purchasePrice: 0,
+      stock: 0,
+      category: '',
+      barcode: '',
+      description: ''
+    });
+
+    const handleAddProduct = useCallback(() => {
+      if (!newProduct.name || !newProduct.price || !newProduct.purchasePrice || !newProduct.category) {
+        alert('Mohon isi field yang wajib (nama, harga jual, harga beli, kategori)!');
+        return;
+      }
+
+      if (newProduct.price <= newProduct.purchasePrice) {
+        if (!window.confirm('Harga jual lebih rendah atau sama dengan harga beli. Lanjutkan?')) {
+          return;
+        }
+      }
+
+      addProduct(newProduct);
+      setNewProduct({ name: '', price: 0, purchasePrice: 0, stock: 0, category: '', barcode: '', description: '' });
+      setIsAddingProduct(false);
+      alert('✅ Produk berhasil ditambahkan!');
+    }, [newProduct, addProduct]);
+
+    const handleUpdateProduct = useCallback(() => {
+      if (!editingProduct) return;
+      
+      if (!newProduct.name || !newProduct.price || !newProduct.purchasePrice || !newProduct.category) {
+        alert('Mohon isi field yang wajib!');
+        return;
+      }
+
+      updateProduct(editingProduct.id, newProduct);
+      setEditingProduct(null);
+      setNewProduct({ name: '', price: 0, purchasePrice: 0, stock: 0, category: '', barcode: '', description: '' });
+      alert('✅ Produk berhasil diupdate!');
+    }, [editingProduct, newProduct, updateProduct]);
+
+    const startEdit = useCallback((product: Product) => {
+      setEditingProduct(product);
+      setNewProduct({
+        name: product.name,
+        price: product.price,
+        purchasePrice: product.purchasePrice,
+        stock: product.stock,
+        category: product.category,
+        barcode: product.barcode,
+        description: product.description
+      });
+    }, []);
+
+    const handleDeleteProduct = useCallback((product: Product) => {
+      if (window.confirm(`Yakin hapus produk "${product.name}"?`)) {
+        deleteProduct(product.id);
+        alert('✅ Produk berhasil dihapus!');
+      }
+    }, [deleteProduct]);
+
+    return (
+      <div className="p-6 space-y-6 fade-in">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">📦 Manajemen Produk</h2>
+          <Button onClick={() => setIsAddingProduct(true)}>
+            ➕ Tambah Produk
+          </Button>
+        </div>
+
+        {(isAddingProduct || editingProduct) && (
+          <Card className="card-gradient shadow-xl border-purple-200">
+            <CardHeader className="gradient-bg-purple text-white rounded-t-lg">
+              <CardTitle className="text-white">
+                {editingProduct ? '✏️ Edit Produk' : '➕ Tambah Produk Baru'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="product-name">Nama Produk *</Label>
+                <Input
+                  id="product-name"
+                  value={newProduct.name}
+                  onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
+                  placeholder="Nama produk"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-price">Harga Jual *</Label>
+                <Input
+                  id="product-price"
+                  type="number"
+                  value={newProduct.price}
+                  onChange={(e) => setNewProduct({...newProduct, price: Number(e.target.value)})}
+                  placeholder="Harga jual produk"
+                  min="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-purchase-price">Harga Beli *</Label>
+                <Input
+                  id="product-purchase-price"
+                  type="number"
+                  value={newProduct.purchasePrice}
+                  onChange={(e) => setNewProduct({...newProduct, purchasePrice: Number(e.target.value)})}
+                  placeholder="Harga beli produk"
+                  min="0"
+                />
+                {newProduct.price > 0 && newProduct.purchasePrice > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Keuntungan: Rp {(newProduct.price - newProduct.purchasePrice).toLocaleString('id-ID')} 
+                    ({(((newProduct.price - newProduct.purchasePrice) / newProduct.purchasePrice) * 100).toFixed(1)}%)
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-stock">Stok</Label>
+                <Input
+                  id="product-stock"
+                  type="number"
+                  value={newProduct.stock}
+                  onChange={(e) => setNewProduct({...newProduct, stock: Number(e.target.value)})}
+                  placeholder="Jumlah stok"
+                  min="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-category">Kategori *</Label>
+                <Input
+                  id="product-category"
+                  value={newProduct.category}
+                  onChange={(e) => setNewProduct({...newProduct, category: e.target.value})}
+                  placeholder="Kategori produk"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-barcode">Barcode</Label>
+                <Input
+                  id="product-barcode"
+                  value={newProduct.barcode}
+                  onChange={(e) => setNewProduct({...newProduct, barcode: e.target.value})}
+                  placeholder="Kode barcode"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="product-description">Deskripsi</Label>
+                <Textarea
+                  id="product-description"
+                  value={newProduct.description}
+                  onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
+                  placeholder="Deskripsi produk"
+                />
+              </div>
+              <div className="md:col-span-2 flex space-x-2">
+                <Button onClick={editingProduct ? handleUpdateProduct : handleAddProduct}>
+                  {editingProduct ? '✅ Update Produk' : '➕ Tambah Produk'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsAddingProduct(false);
+                    setEditingProduct(null);
+                    setNewProduct({ name: '', price: 0, purchasePrice: 0, stock: 0, category: '', barcode: '', description: '' });
+                  }}
+                >
+                  ❌ Batal
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className="card-gradient shadow-xl border-blue-200">
+          <CardHeader className="gradient-bg-blue text-white rounded-t-lg">
+            <CardTitle className="text-white">📦 Daftar Produk ({products.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-2">Nama</th>
+                    <th className="text-left p-2">Harga</th>
+                    <th className="text-left p-2">Keuntungan</th>
+                    <th className="text-left p-2">Stok</th>
+                    <th className="text-left p-2">Kategori</th>
+                    <th className="text-left p-2">Barcode</th>
+                    <th className="text-left p-2">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map(product => (
+                    <tr key={product.id} className="border-b hover:bg-muted/50 transition-colors">
+                      <td className="p-2">
+                        <div>
+                          <p className="font-medium">{product.name}</p>
+                          {product.description && (
+                            <p className="text-xs text-muted-foreground truncate max-w-48">
+                              {product.description}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-2">
+                        <p className="font-bold text-primary">
+                          Rp {product.price.toLocaleString('id-ID')}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Modal: Rp {product.purchasePrice.toLocaleString('id-ID')}
+                        </p>
+                      </td>
+                      <td className="p-2">
+                        <p className="font-bold text-green-600">
+                          Rp {(product.price - product.purchasePrice).toLocaleString('id-ID')}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {(((product.price - product.purchasePrice) / product.purchasePrice) * 100).toFixed(1)}%
+                        </p>
+                      </td>
+                      <td className={`p-2 ${product.stock <= lowStockThreshold ? 'text-destructive font-bold' : ''}`}>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          product.stock <= lowStockThreshold 
+                            ? 'bg-destructive/10 text-destructive' 
+                            : 'bg-primary/10 text-primary'
+                        }`}>
+                          {product.stock} unit
+                        </span>
+                      </td>
+                      <td className="p-2">
+                        <span className="px-2 py-1 bg-secondary text-secondary-foreground rounded text-xs">
+                          {product.category}
+                        </span>
+                      </td>
+                      <td className="p-2 font-mono text-xs">{product.barcode}</td>
+                      <td className="p-2 space-x-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => startEdit(product)}
+                        >
+                          ✏️ Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleDeleteProduct(product)}
+                        >
+                          🗑️ Hapus
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {products.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                        📦 Belum ada produk. Tambahkan produk pertama Anda!
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  });
+
+  // Enhanced Reports Component
+  const Reports = React.memo(() => {
+    const [reportPeriod, setReportPeriod] = useState('today');
+    
+    const getFilteredTransactions = useCallback(() => {
+      const now = new Date();
+      let startDate = new Date();
+      
+      switch (reportPeriod) {
+        case 'today':
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        case 'week':
+          startDate.setDate(now.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(now.getMonth() - 1);
+          break;
+        default:
+          startDate = new Date(0);
+      }
+      
+      return transactions.filter(t => new Date(t.date) >= startDate);
+    }, [transactions, reportPeriod]);
+
+    const filteredTransactions = useMemo(() => getFilteredTransactions(), [getFilteredTransactions]);
+    const totalRevenue = useMemo(() => filteredTransactions.reduce((sum, t) => sum + t.total, 0), [filteredTransactions]);
+    const averageTransaction = useMemo(() => totalRevenue / (filteredTransactions.length || 1), [totalRevenue, filteredTransactions.length]);
+    
+    // Calculate total profit
+    const totalProfit = useMemo(() => filteredTransactions.reduce((sum, transaction) => {
+      const transactionProfit = transaction.items.reduce((itemSum, item) => {
+        const profit = (item.product.price - item.product.purchasePrice) * item.quantity;
+        return itemSum + profit;
+      }, 0);
+      return sum + transactionProfit;
+    }, 0), [filteredTransactions]);
+    
+    const profitMargin = useMemo(() => totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0, [totalProfit, totalRevenue]);
+
+    // Payment method breakdown
+    const paymentBreakdown = useMemo(() => {
+      const breakdown = filteredTransactions.reduce((acc, t) => {
+        acc[t.paymentMethod] = (acc[t.paymentMethod] || 0) + t.total;
+        return acc;
+      }, {} as Record<string, number>);
+      return Object.entries(breakdown);
+    }, [filteredTransactions]);
+
+    return (
+      <div className="p-6 space-y-6 fade-in">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">📈 Laporan Penjualan</h2>
+          <div className="flex space-x-2">
+            <Select value={reportPeriod} onValueChange={setReportPeriod}>
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="today">📅 Hari Ini</SelectItem>
+                <SelectItem value="week">📅 7 Hari Terakhir</SelectItem>
+                <SelectItem value="month">📅 30 Hari Terakhir</SelectItem>
+                <SelectItem value="all">📅 Semua Waktu</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const csvContent = [
+                  ['ID', 'Tanggal', 'Pelanggan', 'Total', 'Pembayaran', 'Kasir'],
+                  ...filteredTransactions.map(t => [
+                    t.id,
+                    new Date(t.date).toLocaleString('id-ID'),
+                    t.customerName || 'Umum',
+                    t.total,
+                    t.paymentMethod,
+                    t.cashier
+                  ])
+                ].map(row => row.join(',')).join('\n');
+                
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `laporan-${reportPeriod}-${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              📊 Export CSV
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="stat-card-blue shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-blue-700">💰 Total Penjualan</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-800">
+                Rp {totalRevenue.toLocaleString('id-ID')}
+              </div>
+              <p className="text-xs text-blue-600 mt-1">
+                {filteredTransactions.length} transaksi
+              </p>
+            </CardContent>
+          </Card>
+          
+          <Card className="stat-card-purple shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-purple-700">📊 Rata-rata Transaksi</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-800">
+                Rp {averageTransaction.toLocaleString('id-ID')}
+              </div>
+              <p className="text-xs text-purple-600 mt-1">
+                Per transaksi
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="stat-card-green shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-green-700">💎 Total Keuntungan</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-800">
+                Rp {totalProfit.toLocaleString('id-ID')}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Margin: {profitMargin.toFixed(1)}%
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="stat-card-pink shadow-md hover:shadow-lg transition-all hover-scale">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-pink-700">📋 Jumlah Transaksi</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-pink-800">
+                {filteredTransactions.length}
+              </div>
+              <p className="text-xs text-pink-600 mt-1">
+                Total transaksi
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Transaction History */}
+          <Card className="card-gradient shadow-lg border-purple-200">
+            <CardHeader className="gradient-bg-purple text-white rounded-t-lg">
+              <CardTitle className="text-white">📊 Riwayat Transaksi</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full border-collapse">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b">
+                      <th className="text-left p-2 text-sm">ID</th>
+                      <th className="text-left p-2 text-sm">Tanggal</th>
+                      <th className="text-left p-2 text-sm">Total</th>
+                      <th className="text-left p-2 text-sm">Pembayaran</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTransactions.map(transaction => (
+                      <tr key={transaction.id} className="border-b hover:bg-muted/50 transition-colors">
+                        <td className="p-2 text-sm">#{transaction.id}</td>
+                        <td className="p-2 text-sm">{new Date(transaction.date).toLocaleString('id-ID')}</td>
+                        <td className="p-2 text-sm font-bold">Rp {transaction.total.toLocaleString('id-ID')}</td>
+                        <td className="p-2 text-sm capitalize">{transaction.paymentMethod}</td>
+                      </tr>
+                    ))}
+                    {filteredTransactions.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="p-8 text-center text-muted-foreground">
+                          📊 Belum ada transaksi untuk periode ini
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment Method 
